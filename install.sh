@@ -98,7 +98,8 @@ install() {
     done
 
     DOWNLOAD_URL="${RELEASE_BASE}/${BINARY_NAME}"
-    TMP_ZIP="/tmp/${BINARY_NAME}"
+    TMP_ZIP="${INSTALL_DIR}/${BINARY_NAME}"
+    TMP_BIN="${INSTALL_DIR}/XrayR.tmp"
 
     echo "  下载: ${DOWNLOAD_URL}"
     curl -L -# "$DOWNLOAD_URL" -o "$TMP_ZIP"
@@ -110,31 +111,17 @@ install() {
         echo "  解压后将 XrayR 放到 $INSTALL_DIR/"
         echo "  然后执行: chmod +x $INSTALL_DIR/XrayR && systemctl start XrayR"
     else
-        cd /tmp
-        mkdir -p /tmp/xrayr-extract
-        # 尝试解压，如果失败则直接用下载的文件
-        if command -v unzip >/dev/null 2>&1; then
-            unzip -o "$TMP_ZIP" -d /tmp/xrayr-extract/ 2>&1 | tail -3
-        fi
-        # 递归查找解压出的 XrayR 二进制（可能在子目录中）
-        if [[ -d /tmp/xrayr-extract ]]; then
-            file_count=$(find /tmp/xrayr-extract/ -type f 2>/dev/null | wc -l)
-            if [[ $file_count -gt 0 ]]; then
-                found=$(find /tmp/xrayr-extract/ -type f -size +1M 2>/dev/null | head -1)
-                if [[ -n "$found" ]]; then
-                    cp "$found" "$INSTALL_DIR/XrayR"
-                    echo "  ✓ XrayR 二进制安装完成 (解压于 $found)"
-                else
-                    echo -e "${yellow}  未在解压目录找到大文件，尝试直接复制下载的文件${plain}"
-                    cp "$TMP_ZIP" "$INSTALL_DIR/XrayR" 2>/dev/null
-                fi
-            else
-                # 解压目录为空，直接复制下载的文件
-                cp "$TMP_ZIP" "$INSTALL_DIR/XrayR" 2>/dev/null
-            fi
+        # 低内存安装：只把 zip 里的 XrayR 条目流式写入目标文件，
+        # 避免在 /tmp 中完整解压出 100MB+ 文件导致小内存机器 OOM。
+        rm -f "$TMP_BIN"
+        if unzip -p "$TMP_ZIP" XrayR > "$TMP_BIN"; then
+            mv -f "$TMP_BIN" "$INSTALL_DIR/XrayR"
+            echo "  ✓ XrayR 二进制安装完成"
         else
-            # unzip 不可用，直接复制
-            cp "$TMP_ZIP" "$INSTALL_DIR/XrayR" 2>/dev/null
+            rm -f "$TMP_BIN"
+            echo -e "${red}安装失败，无法从压缩包中提取 XrayR 二进制${plain}"
+            echo "  压缩包已下载到: $TMP_ZIP"
+            echo "  可手动执行: unzip -p $TMP_ZIP XrayR > $INSTALL_DIR/XrayR && chmod +x $INSTALL_DIR/XrayR"
         fi
         if [[ -f "$INSTALL_DIR/XrayR" ]]; then
             chmod +x "$INSTALL_DIR/XrayR"
@@ -142,7 +129,7 @@ install() {
         else
             echo -e "${red}安装失败，请手动解压 $TMP_ZIP 并将 XrayR 文件放到 $INSTALL_DIR/${plain}"
         fi
-        rm -rf /tmp/xrayr-extract "$TMP_ZIP"
+        rm -f "$TMP_ZIP" "$TMP_BIN"
     fi
 
     # 重载 systemd
