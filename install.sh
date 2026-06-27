@@ -149,9 +149,9 @@ install() {
             echo "  ✓ XrayR 二进制安装完成"
         else
             rm -f "$TMP_BIN"
-            echo -e "${yellow}  未找到未压缩二进制，回退下载 zip 包${plain}"
-            echo "  下载: ${DOWNLOAD_URL}"
-            curl -L -# "$DOWNLOAD_URL" -o "$TMP_ZIP"
+            echo -e "${red}低内存模式下未能下载未压缩二进制，已停止以避免 unzip 触发 OOM${plain}"
+            echo "  请确认 release 资产存在: ${DIRECT_URL}"
+            exit 1
         fi
     else
         echo "  内存不小于 512MB，下载 zip 包: ${DOWNLOAD_URL}"
