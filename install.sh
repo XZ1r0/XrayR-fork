@@ -54,6 +54,37 @@ detect_arch() {
     echo "$BINARY_NAME"
 }
 
+detect_memory_mb() {
+    if [[ -r /proc/meminfo ]]; then
+        while read -r key value unit; do
+            if [[ "$key" == "MemTotal:" && "$value" =~ ^[0-9]+$ ]]; then
+                echo $((value / 1024))
+                return
+            fi
+        done < /proc/meminfo
+    fi
+    echo 0
+}
+
+ensure_unzip() {
+    if command -v unzip >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo -e "${yellow}  正在安装 unzip...${plain}"
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get install -y unzip >/dev/null 2>&1
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y unzip >/dev/null 2>&1
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y unzip >/dev/null 2>&1
+    elif command -v apk >/dev/null 2>&1; then
+        apk add unzip >/dev/null 2>&1
+    fi
+
+    command -v unzip >/dev/null 2>&1
+}
+
 install() {
     echo -e "${green}===== 开始安装 XrayR =====${plain}"
 
@@ -102,33 +133,32 @@ install() {
     DOWNLOAD_URL="${RELEASE_BASE}/${BINARY_NAME}"
     TMP_ZIP="${INSTALL_DIR}/${BINARY_NAME}"
     TMP_BIN="${INSTALL_DIR}/XrayR.tmp"
+    MEMORY_MB=$(detect_memory_mb)
 
-    echo "  优先下载未压缩二进制: ${DIRECT_URL}"
-    curl -fL -# "$DIRECT_URL" -o "$TMP_BIN"
-    if [[ $? -eq 0 && -s "$TMP_BIN" ]]; then
-        mv -f "$TMP_BIN" "$INSTALL_DIR/XrayR"
-        echo "  ✓ XrayR 二进制安装完成"
+    if [[ "$MEMORY_MB" -gt 0 ]]; then
+        echo "  检测到内存: ${MEMORY_MB} MB"
     else
-        rm -f "$TMP_BIN"
-        echo -e "${yellow}  未找到未压缩二进制，回退下载 zip 包${plain}"
-        if ! command -v unzip >/dev/null 2>&1; then
-            echo -e "${yellow}  正在安装 unzip...${plain}"
-            if command -v apt-get >/dev/null 2>&1; then
-                apt-get install -y unzip >/dev/null 2>&1
-            elif command -v yum >/dev/null 2>&1; then
-                yum install -y unzip >/dev/null 2>&1
-            elif command -v dnf >/dev/null 2>&1; then
-                dnf install -y unzip >/dev/null 2>&1
-            elif command -v apk >/dev/null 2>&1; then
-                apk add unzip >/dev/null 2>&1
-            fi
-        fi
+        echo -e "${yellow}  未能检测内存大小，默认使用 zip 包${plain}"
+    fi
 
-        if ! command -v unzip >/dev/null 2>&1; then
+    if [[ "$MEMORY_MB" -gt 0 && "$MEMORY_MB" -lt 512 ]]; then
+        echo "  内存小于 512MB，直接下载未压缩二进制: ${DIRECT_URL}"
+        curl -fL -# "$DIRECT_URL" -o "$TMP_BIN"
+        if [[ $? -eq 0 && -s "$TMP_BIN" ]]; then
+            mv -f "$TMP_BIN" "$INSTALL_DIR/XrayR"
+            echo "  ✓ XrayR 二进制安装完成"
+        else
+            rm -f "$TMP_BIN"
+            echo -e "${yellow}  未找到未压缩二进制，回退下载 zip 包${plain}"
+            echo "  下载: ${DOWNLOAD_URL}"
+            curl -L -# "$DOWNLOAD_URL" -o "$TMP_ZIP"
+        fi
+    else
+        echo "  内存不小于 512MB，下载 zip 包: ${DOWNLOAD_URL}"
+        if ! ensure_unzip; then
             echo -e "${red}安装失败，未找到 unzip 且自动安装失败${plain}"
         fi
 
-        echo "  下载: ${DOWNLOAD_URL}"
         curl -L -# "$DOWNLOAD_URL" -o "$TMP_ZIP"
     fi
 
@@ -142,10 +172,12 @@ install() {
         echo "  解压后将 XrayR 放到 $INSTALL_DIR/"
         echo "  然后执行: chmod +x $INSTALL_DIR/XrayR && systemctl start XrayR"
     else
-        # 低内存安装：只把 zip 里的 XrayR 条目流式写入目标文件，
-        # 避免在 /tmp 中完整解压出 100MB+ 文件导致小内存机器 OOM。
+        # 只把 zip 里的 XrayR 条目流式写入目标文件，
+        # 避免在 /tmp 中完整解压出 100MB+ 文件。
         rm -f "$TMP_BIN"
-        if unzip -p "$TMP_ZIP" XrayR > "$TMP_BIN"; then
+        if ! ensure_unzip; then
+            echo -e "${red}安装失败，未找到 unzip 且自动安装失败${plain}"
+        elif unzip -p "$TMP_ZIP" XrayR > "$TMP_BIN"; then
             mv -f "$TMP_BIN" "$INSTALL_DIR/XrayR"
             echo "  ✓ XrayR 二进制安装完成"
         else
