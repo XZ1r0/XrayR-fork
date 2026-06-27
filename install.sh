@@ -81,8 +81,8 @@ install() {
     BINARY_NAME=$(detect_arch)
     echo "  检测到架构: $BINARY_NAME"
 
-    # 检查依赖
-    for cmd in curl unzip; do
+    # 检查基础下载依赖。unzip 只在未压缩二进制不存在时作为回退安装。
+    for cmd in curl; do
         if ! command -v $cmd >/dev/null 2>&1; then
             echo -e "${yellow}  正在安装 $cmd...${plain}"
             if command -v apt-get >/dev/null 2>&1; then
@@ -97,14 +97,45 @@ install() {
         fi
     done
 
+    DIRECT_NAME="${BINARY_NAME%.zip}"
+    DIRECT_URL="${RELEASE_BASE}/${DIRECT_NAME}"
     DOWNLOAD_URL="${RELEASE_BASE}/${BINARY_NAME}"
     TMP_ZIP="${INSTALL_DIR}/${BINARY_NAME}"
     TMP_BIN="${INSTALL_DIR}/XrayR.tmp"
 
-    echo "  下载: ${DOWNLOAD_URL}"
-    curl -L -# "$DOWNLOAD_URL" -o "$TMP_ZIP"
+    echo "  优先下载未压缩二进制: ${DIRECT_URL}"
+    curl -fL -# "$DIRECT_URL" -o "$TMP_BIN"
+    if [[ $? -eq 0 && -s "$TMP_BIN" ]]; then
+        mv -f "$TMP_BIN" "$INSTALL_DIR/XrayR"
+        echo "  ✓ XrayR 二进制安装完成"
+    else
+        rm -f "$TMP_BIN"
+        echo -e "${yellow}  未找到未压缩二进制，回退下载 zip 包${plain}"
+        if ! command -v unzip >/dev/null 2>&1; then
+            echo -e "${yellow}  正在安装 unzip...${plain}"
+            if command -v apt-get >/dev/null 2>&1; then
+                apt-get install -y unzip >/dev/null 2>&1
+            elif command -v yum >/dev/null 2>&1; then
+                yum install -y unzip >/dev/null 2>&1
+            elif command -v dnf >/dev/null 2>&1; then
+                dnf install -y unzip >/dev/null 2>&1
+            elif command -v apk >/dev/null 2>&1; then
+                apk add unzip >/dev/null 2>&1
+            fi
+        fi
 
-    if [[ $? -ne 0 || ! -f "$TMP_ZIP" ]]; then
+        if ! command -v unzip >/dev/null 2>&1; then
+            echo -e "${red}安装失败，未找到 unzip 且自动安装失败${plain}"
+        fi
+
+        echo "  下载: ${DOWNLOAD_URL}"
+        curl -L -# "$DOWNLOAD_URL" -o "$TMP_ZIP"
+    fi
+
+    if [[ -f "$INSTALL_DIR/XrayR" ]]; then
+        chmod +x "$INSTALL_DIR/XrayR"
+        echo "  ✓ XrayR 二进制已就绪"
+    elif [[ ! -f "$TMP_ZIP" ]]; then
         echo ""
         echo -e "${red}下载失败，请手动下载:${plain}"
         echo "  $DOWNLOAD_URL"
@@ -129,8 +160,8 @@ install() {
         else
             echo -e "${red}安装失败，请手动解压 $TMP_ZIP 并将 XrayR 文件放到 $INSTALL_DIR/${plain}"
         fi
-        rm -f "$TMP_ZIP" "$TMP_BIN"
     fi
+    rm -f "$TMP_ZIP" "$TMP_BIN"
 
     # 重载 systemd
     systemctl daemon-reload
